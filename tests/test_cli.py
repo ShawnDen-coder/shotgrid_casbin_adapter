@@ -42,6 +42,9 @@ class TestInitCommand:
         assert result.exit_code == 0
         assert "Created 7 field(s)" in result.output
         assert mock_sg.schema_field_create.call_count == 7
+        # Should also seed admin policy
+        mock_sg.create.assert_called_once()
+        assert "admin policy" in result.output
 
     def test_skips_existing_fields(self, mock_sg, runner, mocker):
         mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
@@ -64,6 +67,8 @@ class TestInitCommand:
         assert "Created 0 field(s)" in result.output
         assert "skipped 7 existing" in result.output
         mock_sg.schema_field_create.assert_not_called()
+        # Admin policy still seeded
+        mock_sg.create.assert_called_once()
 
     def test_custom_entity_type(self, mock_sg, runner, mocker):
         mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
@@ -121,6 +126,37 @@ class TestInitCommand:
 
         assert result.exit_code == 0
         assert DEFAULT_ENTITY_TYPE in result.output
+
+    def test_project_id_option(self, mock_sg, runner, mocker):
+        mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
+        mock_sg.schema_field_read.return_value = {}
+
+        result = runner.invoke(
+            cli,
+            ["init", "--base-url", "https://t.sg.com", "--script-name", "s", "--api-key", "k", "--project-id", "42"],
+        )
+
+        assert result.exit_code == 0
+        assert "project 42" in result.output
+        # Verify create was called with project data
+        create_call_data = mock_sg.create.call_args[0][1]
+        assert create_call_data["project"] == {"type": "Project", "id": 42}
+
+    def test_admin_policy_seeded(self, mock_sg, runner, mocker):
+        mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
+        mock_sg.schema_field_read.return_value = {}
+
+        result = runner.invoke(
+            cli,
+            ["init", "--base-url", "https://t.sg.com", "--script-name", "s", "--api-key", "k"],
+        )
+
+        assert result.exit_code == 0
+        create_call_data = mock_sg.create.call_args[0][1]
+        assert create_call_data["ptype"] == "p"
+        assert create_call_data["v0"] == "admin"
+        assert create_call_data["v1"] == "*"
+        assert create_call_data["v2"] == "*"
 
     def test_missing_url_fails(self, runner, mocker):
         mocker.patch.dict(os.environ, {}, clear=True)

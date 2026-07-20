@@ -44,6 +44,7 @@ jobs:
   publish-private-pypi:
     needs: build
     runs-on: ubuntu-latest
+    if: ${{ secrets.PYPI_SERVER_USERNAME != '' && secrets.PYPI_SERVER_PASSWORD != '' }}
     env:
       PYPI_SERVER_USERNAME: ${{ secrets.PYPI_SERVER_USERNAME }}
       PYPI_SERVER_PASSWORD: ${{ secrets.PYPI_SERVER_PASSWORD }}

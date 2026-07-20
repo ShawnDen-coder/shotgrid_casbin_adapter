@@ -2,8 +2,9 @@
 
 This module contains all CLI command definitions and entry points using Click.
 The primary command is ``init``, which creates the Casbin fields (ptype, v0-v5)
-on a ShotGrid custom entity type. The entity type itself must already be enabled
-in ShotGrid (via Site Preferences > Entities) before running ``init``.
+on a ShotGrid custom entity type and optionally seeds a default admin policy.
+The entity type itself must already be enabled in ShotGrid
+(via Site Preferences > Entities) before running ``init``.
 
 Typical usage example:
 
@@ -26,8 +27,10 @@ from shotgun_api3.shotgun import Shotgun
 from shotgrid_casbin_adapter.constants import DEFAULT_ENTITY_TYPE
 from shotgrid_casbin_adapter.constants import SHOTGRID_API_KEY
 from shotgrid_casbin_adapter.constants import SHOTGRID_ENTITY_TYPE
+from shotgrid_casbin_adapter.constants import SHOTGRID_PROJECT_ID
 from shotgrid_casbin_adapter.constants import SHOTGRID_SCRIPT_NAME
 from shotgrid_casbin_adapter.constants import SHOTGRID_URL
+from shotgrid_casbin_adapter.helpers import _rule_to_dict
 
 
 def _get_sg(
@@ -95,12 +98,28 @@ def cli() -> None:
     default=None,
     help=f"Custom entity type name (env: {SHOTGRID_ENTITY_TYPE}, default: {DEFAULT_ENTITY_TYPE}).",
 )
-def init(base_url: str | None, script_name: str | None, api_key: str | None, entity_type: str | None) -> None:
+@click.option(
+    "--project-id",
+    default=None,
+    type=int,
+    help=f"ShotGrid project ID for seeding the admin policy (env: {SHOTGRID_PROJECT_ID}).",
+)
+def init(
+    base_url: str | None,
+    script_name: str | None,
+    api_key: str | None,
+    entity_type: str | None,
+    project_id: int | None,
+) -> None:
     """Create Casbin fields on a ShotGrid custom entity type.
 
     Creates the required fields (ptype, v0-v5) on the specified ShotGrid
-    custom entity type. The entity type must already be enabled in ShotGrid
-    (Site Preferences > Entities); this command only creates the fields.
+    custom entity type, then seeds a default admin policy rule
+    (``p, admin, *, *``) so the adapter is ready to use immediately.
+
+    The entity type must already be enabled in ShotGrid
+    (Site Preferences > Entities); this command only creates the fields
+    and the seed policy.
 
     Connection parameters can be provided via CLI options or environment
     variables.
@@ -111,8 +130,11 @@ def init(base_url: str | None, script_name: str | None, api_key: str | None, ent
         api_key: ShotGrid API key. Falls back to ``SHOTGRID_API_KEY`` env var.
         entity_type: Custom entity type name. Falls back to ``SHOTGRID_ENTITY_TYPE``
             env var, then ``DEFAULT_ENTITY_TYPE``.
+        project_id: ShotGrid project ID for scoping the seed admin policy.
+            Falls back to ``SHOTGRID_PROJECT_ID`` env var.
     """
     entity_type = entity_type or os.environ.get(SHOTGRID_ENTITY_TYPE) or DEFAULT_ENTITY_TYPE
+    project_id = project_id or (int(v) if (v := os.environ.get(SHOTGRID_PROJECT_ID)) else None)
     sg = _get_sg(base_url, script_name, api_key)
 
     # Validate that the entity type exists in ShotGrid
@@ -152,4 +174,13 @@ def init(base_url: str | None, script_name: str | None, api_key: str | None, ent
             created.append(field_name)
             click.echo(f"  Created field '{field_name}' ({data_type}).")
 
-    click.echo(f"\nDone! Created {len(created)} field(s), skipped {len(skipped)} existing field(s).")
+    click.echo(f"\nCreated {len(created)} field(s), skipped {len(skipped)} existing field(s).")
+
+    # Seed default admin policy: p, admin, *, *
+    admin_data = _rule_to_dict("p", ["admin", "*", "*"], project_id)
+    sg.create(entity_type, admin_data)
+    click.echo("Seeded default admin policy: p, admin, *, *")
+    if project_id is not None:
+        click.echo(f"  (scoped to project {project_id})")
+
+    click.echo("\nDone!")

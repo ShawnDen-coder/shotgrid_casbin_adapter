@@ -14,8 +14,6 @@ concurrency:
 env:
   UV_INDEX_HOMELAB_USERNAME: ${{ secrets.PYPI_SERVER_USERNAME }}
   UV_INDEX_HOMELAB_PASSWORD: ${{ secrets.PYPI_SERVER_PASSWORD }}
-  PYPI_SERVER_USERNAME: ${{ secrets.PYPI_SERVER_USERNAME }}
-  PYPI_SERVER_PASSWORD: ${{ secrets.PYPI_SERVER_PASSWORD }}
 jobs:
   lint:
     runs-on: ubuntu-latest
