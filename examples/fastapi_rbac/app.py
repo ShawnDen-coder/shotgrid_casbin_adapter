@@ -247,3 +247,20 @@ def admin_settings(user: str = Depends(_current_user)):
     """Admin settings — requires 'admin' role with 'read' on 'settings'."""
     authorize(user, "settings", "read")
     return {"message": "Admin settings accessed", "user": user}
+
+
+@app.get("/debug/policies")
+def debug_policies():
+    """Debug endpoint — list all loaded policies and groupings."""
+    # Also try to re-load from ShotGrid to see raw data
+    try:
+        raw = adapter.sg.find(adapter.entity_type, [], _FIELDS_WITH_ID)
+    except Exception as e:
+        raw = f"Error: {e}"
+    return {
+        "policies": enforcer.get_policy(),
+        "grouping": enforcer.get_grouping_policy(),
+        "entity_type": adapter.entity_type,
+        "project_id": adapter.project_id,
+        "raw_shotgrid_entities": raw,
+    }
