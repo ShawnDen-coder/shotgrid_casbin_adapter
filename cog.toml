@@ -1,0 +1,20 @@
+ignore_merge_commits = true
+branch_whitelist = ["master", "main"]
+skip_ci = "[skip ci]"
+
+pre_bump_hooks = [
+    "uv version {{version}}",
+    "uv lock --no-upgrade",
+]
+
+post_bump_hooks = [
+    "git push",
+    "git push origin {{version}}",
+]
+
+[changelog]
+path = "CHANGELOG.md"
+template = "remote"
+remote = "github.com"
+owner = "ShawnDen-coder"
+repository = "shotgrid_casbin_adapter"

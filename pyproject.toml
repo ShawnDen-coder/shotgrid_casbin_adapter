@@ -1,0 +1,41 @@
+[project]
+name = "shotgrid_casbin_adapter"
+version = "0.1.0"
+description = "A Casbin policy adapter that enables loading and saving access control policies from/to Autodesk ShotGrid (formerly Shotgun)."
+authors = [{name = "shawndeng", email = "shawndeng1109@qq.com"}]
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.10,<3.14.99"
+dependencies = [
+    "casbin>=1.36.0",
+    "click>=8.1.8",
+    "shotgun-api3>=3.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ShawnDen-coder/shotgrid_casbin_adapter"
+Repository = "https://github.com/ShawnDen-coder/shotgrid_casbin_adapter"
+Documentation = "https://ShawnDen-coder.github.io/shotgrid_casbin_adapter"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.4",
+    "pytest-mock>=3.14.0",
+    "pytest-cov>=6.0.0",
+]
+docs = [
+    "mkdocs>=1.5.3",
+    "mkdocs-material>=9.5.3",
+    "mkdocstrings>=0.24.0",
+    "mkdocstrings-python>=1.7.5",
+    "mkdocs-gen-files>=0.5.0",
+    "pymdown-extensions>=10.7",
+    "mkdocs-literate-nav>=0.6.1",
+]
+
+[project.scripts]
+shotgrid_casbin_adapter = "shotgrid_casbin_adapter.cli:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
