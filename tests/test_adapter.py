@@ -30,25 +30,25 @@ class TestRuleToDict:
 
     def test_basic_rule(self):
         assert _rule_to_dict("p", ["alice", "data1", "read"]) == {
-            "ptype": "p",
-            "v0": "alice",
-            "v1": "data1",
-            "v2": "read",
+            "sg_ptype": "p",
+            "sg_v0": "alice",
+            "sg_v1": "data1",
+            "sg_v2": "read",
         }
 
     def test_short_rule(self):
-        assert _rule_to_dict("g", ["alice", "admin"]) == {"ptype": "g", "v0": "alice", "v1": "admin"}
+        assert _rule_to_dict("g", ["alice", "admin"]) == {"sg_ptype": "g", "sg_v0": "alice", "sg_v1": "admin"}
 
     def test_empty_rule(self):
-        assert _rule_to_dict("p", []) == {"ptype": "p"}
+        assert _rule_to_dict("p", []) == {"sg_ptype": "p"}
 
     def test_with_project_id(self):
         result = _rule_to_dict("p", ["alice", "data1", "read"], project_id=42)
         assert result == {
-            "ptype": "p",
-            "v0": "alice",
-            "v1": "data1",
-            "v2": "read",
+            "sg_ptype": "p",
+            "sg_v0": "alice",
+            "sg_v1": "data1",
+            "sg_v2": "read",
             "project": {"type": "Project", "id": 42},
         }
 
@@ -61,15 +61,23 @@ class TestEntityToStr:
     """Tests for _entity_to_str."""
 
     def test_full_entity(self):
-        entity = {"ptype": "p", "v0": "alice", "v1": "data1", "v2": "read", "v3": None, "v4": None, "v5": None}
+        entity = {
+            "sg_ptype": "p",
+            "sg_v0": "alice",
+            "sg_v1": "data1",
+            "sg_v2": "read",
+            "sg_v3": None,
+            "sg_v4": None,
+            "sg_v5": None,
+        }
         assert _entity_to_str(entity) == "p, alice, data1, read"
 
     def test_short_entity(self):
-        entity = {"ptype": "g", "v0": "alice", "v1": "admin", "v2": None}
+        entity = {"sg_ptype": "g", "sg_v0": "alice", "sg_v1": "admin", "sg_v2": None}
         assert _entity_to_str(entity) == "g, alice, admin"
 
     def test_ptype_only(self):
-        assert _entity_to_str({"ptype": "p", "v0": None}) == "p"
+        assert _entity_to_str({"sg_ptype": "p", "sg_v0": None}) == "p"
 
 
 class TestBuildSgFilters:
@@ -81,13 +89,13 @@ class TestBuildSgFilters:
     def test_ptype_filter(self):
         f = Filter()
         f.ptype = ["p"]
-        assert _build_sg_filters(f) == [["ptype", "in", ["p"]]]
+        assert _build_sg_filters(f) == [["sg_ptype", "in", ["p"]]]
 
     def test_multiple_fields(self):
         f = Filter()
         f.ptype = ["p"]
         f.v0 = ["alice", "bob"]
-        assert _build_sg_filters(f) == [["ptype", "in", ["p"]], ["v0", "in", ["alice", "bob"]]]
+        assert _build_sg_filters(f) == [["sg_ptype", "in", ["p"]], ["sg_v0", "in", ["alice", "bob"]]]
 
 
 class TestProjectFilter:
@@ -117,12 +125,12 @@ class TestBuildRuleFilters:
 
     def test_without_project(self):
         result = _build_rule_filters("p", ["alice", "data1"])
-        assert result == [["ptype", "is", "p"], ["v0", "is", "alice"], ["v1", "is", "data1"]]
+        assert result == [["sg_ptype", "is", "p"], ["sg_v0", "is", "alice"], ["sg_v1", "is", "data1"]]
 
     def test_with_project(self):
         result = _build_rule_filters("p", ["alice"], project_id=42)
         assert result[0] == ["project", "is", {"type": "Project", "id": 42}]
-        assert result[1] == ["ptype", "is", "p"]
+        assert result[1] == ["sg_ptype", "is", "p"]
 
 
 # --- Adapter tests ---
@@ -203,8 +211,26 @@ class TestAdapterLoadPolicy:
 
     def test_load_policy(self, adapter, mock_sg, mocker):
         mock_sg.find.return_value = [
-            {"id": 1, "ptype": "p", "v0": "alice", "v1": "data1", "v2": "read", "v3": None, "v4": None, "v5": None},
-            {"id": 2, "ptype": "g", "v0": "alice", "v1": "admin", "v2": None, "v3": None, "v4": None, "v5": None},
+            {
+                "id": 1,
+                "sg_ptype": "p",
+                "sg_v0": "alice",
+                "sg_v1": "data1",
+                "sg_v2": "read",
+                "sg_v3": None,
+                "sg_v4": None,
+                "sg_v5": None,
+            },
+            {
+                "id": 2,
+                "sg_ptype": "g",
+                "sg_v0": "alice",
+                "sg_v1": "admin",
+                "sg_v2": None,
+                "sg_v3": None,
+                "sg_v4": None,
+                "sg_v5": None,
+            },
         ]
         mocker.patch("shotgrid_casbin_adapter.core.persist.load_policy_line")
 
@@ -262,14 +288,20 @@ class TestAdapterAddPolicy:
     def test_add_policy(self, adapter, mock_sg):
         adapter.add_policy("p", "p", ["alice", "data1", "read"])
         mock_sg.create.assert_called_once_with(
-            DEFAULT_ENTITY_TYPE, {"ptype": "p", "v0": "alice", "v1": "data1", "v2": "read"}
+            DEFAULT_ENTITY_TYPE, {"sg_ptype": "p", "sg_v0": "alice", "sg_v1": "data1", "sg_v2": "read"}
         )
 
     def test_add_policy_with_project(self, project_adapter, mock_sg):
         project_adapter.add_policy("p", "p", ["alice", "data1", "read"])
         mock_sg.create.assert_called_once_with(
             DEFAULT_ENTITY_TYPE,
-            {"ptype": "p", "v0": "alice", "v1": "data1", "v2": "read", "project": {"type": "Project", "id": 42}},
+            {
+                "sg_ptype": "p",
+                "sg_v0": "alice",
+                "sg_v1": "data1",
+                "sg_v2": "read",
+                "project": {"type": "Project", "id": 42},
+            },
         )
 
     def test_add_policies(self, adapter, mock_sg):
@@ -342,14 +374,14 @@ class TestAdapterUpdatePolicy:
         mock_sg.find.return_value = [{"id": 1}]
         adapter.update_policy("p", "p", ["alice", "data1", "read"], ["alice", "data1", "write"])
         mock_sg.update.assert_called_once_with(
-            DEFAULT_ENTITY_TYPE, 1, {"ptype": "p", "v0": "alice", "v1": "data1", "v2": "write"}
+            DEFAULT_ENTITY_TYPE, 1, {"sg_ptype": "p", "sg_v0": "alice", "sg_v1": "data1", "sg_v2": "write"}
         )
 
     def test_update_policy_shorter_new_rule(self, adapter, mock_sg):
         mock_sg.find.return_value = [{"id": 1}]
         adapter.update_policy("p", "p", ["alice", "data1", "read"], ["alice", "data1"])
         mock_sg.update.assert_called_once_with(
-            DEFAULT_ENTITY_TYPE, 1, {"ptype": "p", "v0": "alice", "v1": "data1", "v2": None}
+            DEFAULT_ENTITY_TYPE, 1, {"sg_ptype": "p", "sg_v0": "alice", "sg_v1": "data1", "sg_v2": None}
         )
 
     def test_update_policy_not_found(self, adapter, mock_sg):
@@ -376,7 +408,16 @@ class TestAdapterFilteredPolicy:
 
     def test_load_filtered_policy(self, adapter, mock_sg, mocker):
         mock_sg.find.return_value = [
-            {"id": 1, "ptype": "p", "v0": "alice", "v1": "data1", "v2": "read", "v3": None, "v4": None, "v5": None},
+            {
+                "id": 1,
+                "sg_ptype": "p",
+                "sg_v0": "alice",
+                "sg_v1": "data1",
+                "sg_v2": "read",
+                "sg_v3": None,
+                "sg_v4": None,
+                "sg_v5": None,
+            },
         ]
         mocker.patch("shotgrid_casbin_adapter.core.persist.load_policy_line")
 
@@ -385,7 +426,7 @@ class TestAdapterFilteredPolicy:
         adapter.load_filtered_policy(mocker.MagicMock(), f)
 
         assert adapter.is_filtered() is True
-        assert mock_sg.find.call_args[0][1] == [["ptype", "in", ["p"]]]
+        assert mock_sg.find.call_args[0][1] == [["sg_ptype", "in", ["p"]]]
 
     def test_load_filtered_policy_with_project(self, project_adapter, mock_sg, mocker):
         mock_sg.find.return_value = []
@@ -397,4 +438,4 @@ class TestAdapterFilteredPolicy:
 
         find_filters = mock_sg.find.call_args[0][1]
         assert find_filters[0] == ["project", "is", {"type": "Project", "id": 42}]
-        assert find_filters[1] == ["ptype", "in", ["p"]]
+        assert find_filters[1] == ["sg_ptype", "in", ["p"]]

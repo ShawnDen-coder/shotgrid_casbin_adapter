@@ -4,14 +4,29 @@ This example demonstrates how to integrate the ShotGrid Casbin Adapter
 with FastAPI to implement Role-Based Access Control (RBAC), with
 authentication backed by the ShotGrid API.
 
+Two authentication backends are provided:
+
+- **REST API** (``SGCA_AUTH_MODE=rest``): Uses the ShotGrid REST API's
+  OAuth 2.0 ``password`` grant type to exchange ``login:password`` for
+  an access token. This is the recommended approach for production —
+  token-based, stateless, and supports refresh tokens.
+
+- **Python SDK** (``SGCA_AUTH_MODE=sdk``): Uses the Python SDK's
+  built-in user-based auth: ``Shotgun(url, login=..., password=...)``.
+  Simpler setup but creates a new connection per auth attempt.
+
+- **Bearer** (``SGCA_AUTH_MODE=bearer``): Dev/testing mode — the token
+  value is used directly as the username, no ShotGrid auth performed.
+
 Setup:
-    1. Install dependencies: ``pip install fastapi uvicorn shotgrid-casbin-adapter``
+    1. Install dependencies: ``pip install fastapi uvicorn shotgrid-casbin-adapter httpx``
     2. Set environment variables (or use a .env file):
        - SHOTGRID_URL
        - SHOTGRID_SCRIPT_NAME
        - SHOTGRID_API_KEY
        - SHOTGRID_PROJECT_ID (optional, for project-scoped policies)
-    3. Run: ``uvicorn app:app --reload``
+       - SGCA_AUTH_MODE (optional, ``rest`` | ``sdk`` | ``bearer``, default: ``rest``)
+    3. Run: ``just example-fastapi``
 
 Policy model (rbac_model.conf):
     - Users can have roles (g policy)
@@ -26,15 +41,19 @@ Example policies stored in ShotGrid:
     g, bob, developer
 """
 
-import base64
 import os
+from functools import lru_cache
 
 import casbin
+import httpx
 from fastapi import Depends
 from fastapi import FastAPI
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
+from fastapi.security import HTTPBasic
+from fastapi.security import HTTPBasicCredentials
 from fastapi.security import HTTPBearer
+from shotgun_api3.shotgun import AuthenticationFault
 from shotgun_api3.shotgun import Shotgun
 
 from shotgrid_casbin_adapter import Adapter
@@ -51,69 +70,141 @@ enforcer = casbin.Enforcer(
 # --- ShotGrid authentication ---
 
 SHOTGRID_URL = os.environ.get("SHOTGRID_URL", "")
-SHOTGRID_SCRIPT_NAME = os.environ.get("SHOTGRID_SCRIPT_NAME", "")
-SHOTGRID_API_KEY = os.environ.get("SHOTGRID_API_KEY", "")
 
 
-def _authenticate_sg_user(login: str, password: str) -> dict | None:
-    """Authenticate a user against ShotGrid using human user credentials.
+@lru_cache(maxsize=128)
+def _authenticate_sg_rest(login: str, password: str) -> str | None:
+    """Authenticate a user via the ShotGrid REST API (OAuth 2.0).
 
-    Uses the ShotGrid API to validate the login/password combination.
-    On success, returns the user entity dict; on failure, returns None.
+    Uses the ``password`` grant type to exchange credentials for an
+    access token. On success, returns the login name; on failure,
+    returns None.
+
+    The REST API endpoint is ``POST /api/v1.1/auth/access_token`` with
+    ``grant_type=password``. This is the recommended auth method for
+    production — token-based, stateless, and supports refresh tokens.
+
+    Results are cached to avoid repeated auth calls.
 
     Args:
         login: ShotGrid human user login name.
         password: ShotGrid human user password.
 
     Returns:
-        The user entity dict if authentication succeeds, otherwise None.
+        The login name if authentication succeeds, otherwise None.
     """
     try:
-        sg = Shotgun(SHOTGRID_URL, login=login, password=password)
-        user: dict = sg.find_one(
-            "HumanUser",
-            [["login", "is", login]],
-            ["id", "login", "name"],
+
+
+        resp = httpx.post(
+            f"{SHOTGRID_URL}/api/v1.1/auth/access_token",
+            data={"grant_type": "password", "username": login, "password": password},
+            timeout=10,
         )
-        return user
+        if resp.status_code == 200:
+            return login
+        return None
     except Exception:
         return None
 
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer())) -> str:
-    """Extract and validate the user from the Authorization header.
+@lru_cache(maxsize=128)
+def _authenticate_sg_sdk(login: str, password: str) -> str | None:
+    """Authenticate a user via the ShotGrid Python SDK.
 
-    Supports two authentication modes:
-    - **Bearer token**: The token value is used directly as the username
-      (for development / testing).
-    - **Basic auth**: Decodes ``login:password`` and validates against
-      the ShotGrid API.
+    Uses the SDK's built-in user-based authentication:
+    ``Shotgun(url, login=..., password=...)``. If credentials are
+    invalid, the constructor raises ``AuthenticationFault``; if valid,
+    the connection succeeds and the user's login is returned.
+
+    Results are cached to avoid repeated authentication calls.
 
     Args:
-        credentials: The HTTP Authorization credentials.
+        login: ShotGrid human user login name.
+        password: ShotGrid human user password.
+
+    Returns:
+        The login name if authentication succeeds, otherwise None.
+    """
+    try:
+        sg = Shotgun(SHOTGRID_URL, login=login, password=password)
+        user: dict = sg.find_one("HumanUser", [["login", "is", login]], ["login"])
+        if user:
+            return user.get("login", login)
+        return None
+    except AuthenticationFault:
+        return None
+    except Exception:
+        return None
+
+
+def _get_user_rest(credentials: HTTPBasicCredentials = Depends(HTTPBasic())) -> str:
+    """Authenticate user via HTTP Basic Auth using the ShotGrid REST API.
+
+    Args:
+        credentials: The HTTP Basic Auth credentials.
 
     Returns:
         The authenticated username (login).
 
     Raises:
-        HTTPException: 401 if authentication fails.
+        HTTPException: 401 if ShotGrid authentication fails.
     """
-    token = credentials.credentials
+    login = _authenticate_sg_rest(credentials.username, credentials.password)
+    if login is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid ShotGrid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return login
 
-    # Try Basic Auth (base64-encoded login:password)
-    try:
-        decoded = base64.b64decode(token).decode("utf-8")
-        if ":" in decoded:
-            login, password = decoded.split(":", 1)
-            user = _authenticate_sg_user(login, password)
-            if user:
-                return user.get("login", login)
-            raise HTTPException(status_code=401, detail="Invalid ShotGrid credentials")
-    except (UnicodeDecodeError, ValueError):
-        pass
 
-    # Fallback: treat token as username (dev/testing mode)
-    return token
+def _get_user_sdk(credentials: HTTPBasicCredentials = Depends(HTTPBasic())) -> str:
+    """Authenticate user via HTTP Basic Auth using the ShotGrid Python SDK.
+
+    Args:
+        credentials: The HTTP Basic Auth credentials.
+
+    Returns:
+        The authenticated username (login).
+
+    Raises:
+        HTTPException: 401 if ShotGrid authentication fails.
+    """
+    login = _authenticate_sg_sdk(credentials.username, credentials.password)
+    if login is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid ShotGrid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return login
+
+
+def _get_user_bearer(credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer())) -> str:
+    """Authenticate user via Bearer token (dev/testing mode).
+
+    Treats the token value directly as the username. No ShotGrid
+    authentication is performed — use this only for development.
+
+    Args:
+        credentials: The HTTP Bearer credentials.
+
+    Returns:
+        The token value as the username.
+    """
+    return credentials.credentials
+
+
+# Choose auth dependency based on environment variable
+_AUTH_MODE = os.environ.get("SGCA_AUTH_MODE", "rest").lower()
+_AUTH_BACKENDS = {
+    "rest": _get_user_rest,
+    "sdk": _get_user_sdk,
+    "bearer": _get_user_bearer,
+}
+_current_user = _AUTH_BACKENDS.get(_AUTH_MODE, _get_user_rest)
 
 
 def authorize(sub: str, obj: str, act: str) -> None:
@@ -125,7 +216,7 @@ def authorize(sub: str, obj: str, act: str) -> None:
         act: The action (e.g. "read", "write").
 
     Raises:
-        HTTPException: If the subject is not authorized.
+        HTTPException: 403 if the subject is not authorized.
     """
     if not enforcer.enforce(sub, obj, act):
         raise HTTPException(status_code=403, detail=f"Forbidden: {sub} cannot {act} on {obj}")
@@ -137,21 +228,21 @@ app = FastAPI(title="ShotGrid Casbin RBAC Example")
 
 
 @app.get("/dataset1/{item}")
-def read_dataset(item: str, user: str = Depends(get_current_user)):
+def read_dataset(item: str, user: str = Depends(_current_user)):
     """Read access to dataset1 items — requires 'read' permission."""
     authorize(user, "dataset1", "read")
     return {"message": f"Read access granted to dataset1/{item}", "user": user}
 
 
 @app.post("/dataset1/{item}")
-def write_dataset(item: str, user: str = Depends(get_current_user)):
+def write_dataset(item: str, user: str = Depends(_current_user)):
     """Write access to dataset1 items — requires 'write' permission."""
     authorize(user, "dataset1", "write")
     return {"message": f"Write access granted to dataset1/{item}", "user": user}
 
 
 @app.get("/admin/settings")
-def admin_settings(user: str = Depends(get_current_user)):
+def admin_settings(user: str = Depends(_current_user)):
     """Admin settings — requires 'admin' role with 'read' on 'settings'."""
     authorize(user, "settings", "read")
     return {"message": "Admin settings accessed", "user": user}

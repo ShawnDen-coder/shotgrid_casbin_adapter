@@ -18,6 +18,7 @@ Attributes:
     Filter: A filter class for filtered policy loading.
 """
 
+from shotgrid_casbin_adapter.constants import CASBIN_FIELD_NAMES
 from shotgrid_casbin_adapter.constants import CASBIN_FIELDS
 
 
@@ -63,4 +64,8 @@ def _build_sg_filters(filter_obj: Filter) -> list[list[str | list[str]]]:
         A list of ShotGrid filter expressions, e.g.
         ``[["ptype", "in", ["p"]], ["v0", "in", ["alice"]]]``.
     """
-    return [[attr, "in", vals] for attr in CASBIN_FIELDS if (vals := getattr(filter_obj, attr, []))]
+    return [
+        [sg_field, "in", vals]
+        for base_name, sg_field in zip(CASBIN_FIELD_NAMES, CASBIN_FIELDS, strict=True)
+        if (vals := getattr(filter_obj, base_name, []))
+    ]
