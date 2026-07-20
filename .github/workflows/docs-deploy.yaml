@@ -12,6 +12,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: ${{ secrets.PYPI_SERVER_USERNAME != '' && secrets.PYPI_SERVER_PASSWORD != '' }}
     env:
       GITHUB_TOKEN: ${{ github.token }}
       UV_INDEX_HOMELAB_USERNAME: ${{ secrets.PYPI_SERVER_USERNAME }}

@@ -113,7 +113,7 @@ m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
 
 ## CLI Usage
 
-Create Casbin fields on a ShotGrid custom entity type:
+Create Casbin fields on a ShotGrid custom entity type and seed a default admin policy:
 
 > **Prerequisite:** The custom entity type must already be enabled in ShotGrid
 > (Site Preferences > Entities). The `init` command only creates fields on an
@@ -137,7 +137,12 @@ sgca init \
 
 # Specify a custom entity type (must already exist in ShotGrid)
 sgca init --entity-type "CustomEntity01"
+
+# Scope the admin policy to a specific project
+sgca init --entity-type "CustomEntity39" --project-id 42
 ```
+
+The `init` command creates the fields and seeds a default admin policy (`p, admin, *, *`) so the adapter is ready to use immediately. If `--project-id` is provided, the admin policy is scoped to that project.
 
 If the entity type does not exist, the command will report an error and remind you to enable it in Site Preferences first.
 
