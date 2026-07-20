@@ -41,8 +41,8 @@ class TestInitCommand:
         )
 
         assert result.exit_code == 0
-        assert "Created 7 field(s)" in result.output
-        assert mock_sg.schema_field_create.call_count == 7
+        assert "Created 6 field(s)" in result.output
+        assert mock_sg.schema_field_create.call_count == 6
         # Should also seed admin policy
         mock_sg.create.assert_called_once()
         assert "Seeded default admin policy" in result.output
@@ -51,7 +51,7 @@ class TestInitCommand:
         mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
         mock_sg.schema_field_read.return_value = {
             "sg_ptype": {},
-            "sg_v0": {},
+            "code": {},
             "sg_v1": {},
             "sg_v2": {},
             "sg_v3": {},
@@ -67,7 +67,7 @@ class TestInitCommand:
 
         assert result.exit_code == 0
         assert "Created 0 field(s)" in result.output
-        assert "skipped 7 existing" in result.output
+        assert "skipped 6 existing" in result.output
         mock_sg.schema_field_create.assert_not_called()
         # Admin policy still seeded
         mock_sg.create.assert_called_once()
@@ -160,7 +160,7 @@ class TestInitCommand:
         assert result.exit_code == 0
         create_call_data = mock_sg.create.call_args[0][1]
         assert create_call_data["sg_ptype"] == "p"
-        assert create_call_data["sg_v0"] == "admin"
+        assert create_call_data["code"] == "admin"
         assert create_call_data["sg_v1"] == "*"
         assert create_call_data["sg_v2"] == "*"
 
