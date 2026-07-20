@@ -176,11 +176,17 @@ def init(
 
     click.echo(f"\nCreated {len(created)} field(s), skipped {len(skipped)} existing field(s).")
 
-    # Seed default admin policy: p, admin, *, *
-    admin_data = _rule_to_dict("p", ["admin", "*", "*"], project_id)
-    sg.create(entity_type, admin_data)
-    click.echo("Seeded default admin policy: p, admin, *, *")
-    if project_id is not None:
-        click.echo(f"  (scoped to project {project_id})")
+    # Seed default admin policy: p, admin, *, * (skip if already exists)
+    from shotgrid_casbin_adapter.helpers import _build_rule_filters
+
+    existing_admin = sg.find_one(entity_type, _build_rule_filters("p", ["admin", "*", "*"], project_id), ["id"])
+    if existing_admin:
+        click.echo("Default admin policy already exists, skipping.")
+    else:
+        admin_data = _rule_to_dict("p", ["admin", "*", "*"], project_id)
+        sg.create(entity_type, admin_data)
+        click.echo("Seeded default admin policy: p, admin, *, *")
+        if project_id is not None:
+            click.echo(f"  (scoped to project {project_id})")
 
     click.echo("\nDone!")

@@ -33,6 +33,7 @@ class TestInitCommand:
     def test_creates_fields(self, mock_sg, runner, mocker):
         mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
         mock_sg.schema_field_read.return_value = {}
+        mock_sg.find_one.return_value = None  # No existing admin policy
 
         result = runner.invoke(
             cli,
@@ -44,7 +45,7 @@ class TestInitCommand:
         assert mock_sg.schema_field_create.call_count == 7
         # Should also seed admin policy
         mock_sg.create.assert_called_once()
-        assert "admin policy" in result.output
+        assert "Seeded default admin policy" in result.output
 
     def test_skips_existing_fields(self, mock_sg, runner, mocker):
         mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
@@ -57,6 +58,7 @@ class TestInitCommand:
             "v4": {},
             "v5": {},
         }
+        mock_sg.find_one.return_value = None  # No existing admin policy
 
         result = runner.invoke(
             cli,
@@ -73,6 +75,7 @@ class TestInitCommand:
     def test_custom_entity_type(self, mock_sg, runner, mocker):
         mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
         mock_sg.schema_field_read.return_value = {}
+        mock_sg.find_one.return_value = None
 
         result = runner.invoke(
             cli,
@@ -118,6 +121,7 @@ class TestInitCommand:
     def test_default_entity_type(self, mock_sg, runner, mocker):
         mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
         mock_sg.schema_field_read.return_value = {}
+        mock_sg.find_one.return_value = None
 
         result = runner.invoke(
             cli,
@@ -130,6 +134,7 @@ class TestInitCommand:
     def test_project_id_option(self, mock_sg, runner, mocker):
         mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
         mock_sg.schema_field_read.return_value = {}
+        mock_sg.find_one.return_value = None
 
         result = runner.invoke(
             cli,
@@ -145,6 +150,7 @@ class TestInitCommand:
     def test_admin_policy_seeded(self, mock_sg, runner, mocker):
         mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
         mock_sg.schema_field_read.return_value = {}
+        mock_sg.find_one.return_value = None
 
         result = runner.invoke(
             cli,
@@ -158,6 +164,20 @@ class TestInitCommand:
         assert create_call_data["v1"] == "*"
         assert create_call_data["v2"] == "*"
 
+    def test_admin_policy_skipped_if_exists(self, mock_sg, runner, mocker):
+        mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
+        mock_sg.schema_field_read.return_value = {}
+        mock_sg.find_one.return_value = {"id": 1, "type": "CustomEntity01"}  # Admin policy already exists
+
+        result = runner.invoke(
+            cli,
+            ["init", "--base-url", "https://t.sg.com", "--script-name", "s", "--api-key", "k"],
+        )
+
+        assert result.exit_code == 0
+        mock_sg.create.assert_not_called()
+        assert "already exists, skipping" in result.output
+
     def test_missing_url_fails(self, runner, mocker):
         mocker.patch.dict(os.environ, {}, clear=True)
         result = runner.invoke(cli, ["init"])
@@ -166,6 +186,7 @@ class TestInitCommand:
     def test_env_vars(self, mock_sg, runner, mocker):
         mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
         mock_sg.schema_field_read.return_value = {}
+        mock_sg.find_one.return_value = None
         mocker.patch.dict(
             os.environ,
             {SHOTGRID_URL: "https://t.sg.com", SHOTGRID_SCRIPT_NAME: "s", SHOTGRID_API_KEY: "k"},
