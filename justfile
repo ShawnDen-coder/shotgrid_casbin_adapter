@@ -42,7 +42,7 @@ sgca-init entity-type="CustomEntity01":
 
 # Run the FastAPI RBAC example (requires .env with SHOTGRID_URL, SHOTGRID_SCRIPT_NAME, SHOTGRID_API_KEY)
 example-fastapi:
-    uv run --with fastapi --with uvicorn --with . uvicorn app:app --app-dir examples/fastapi_rbac --reload
+    uv run --with fastapi --with uvicorn --with httpx --with . uvicorn app:app --app-dir examples/fastapi_rbac --reload
 
 # Run tests with the dev Python version
 test:

@@ -24,6 +24,8 @@ import click
 from shotgun_api3.shotgun import Fault
 from shotgun_api3.shotgun import Shotgun
 
+from shotgrid_casbin_adapter.constants import CASBIN_FIELD_NAMES
+from shotgrid_casbin_adapter.constants import CASBIN_FIELDS
 from shotgrid_casbin_adapter.constants import DEFAULT_ENTITY_TYPE
 from shotgrid_casbin_adapter.constants import SHOTGRID_API_KEY
 from shotgrid_casbin_adapter.constants import SHOTGRID_ENTITY_TYPE
@@ -153,26 +155,28 @@ def init(
     existing_field_names: set[str] = set(existing_fields.keys())
 
     # Create missing Casbin fields
-    field_definitions: dict[str, tuple[str, str]] = {
-        "ptype": ("text", "Policy Type"),
-        "v0": ("text", "V0"),
-        "v1": ("text", "V1"),
-        "v2": ("text", "V2"),
-        "v3": ("text", "V3"),
-        "v4": ("text", "V4"),
-        "v5": ("text", "V5"),
+    # schema_field_read returns names with sg_ prefix (e.g. sg_ptype)
+    # schema_field_create takes the base name without prefix (e.g. ptype)
+    display_names: dict[str, str] = {
+        "ptype": "Policy Type",
+        "v0": "V0",
+        "v1": "V1",
+        "v2": "V2",
+        "v3": "V3",
+        "v4": "V4",
+        "v5": "V5",
     }
 
     created: list[str] = []
     skipped: list[str] = []
-    for field_name, (data_type, display_name) in field_definitions.items():
-        if field_name in existing_field_names:
-            skipped.append(field_name)
-            click.echo(f"  Field '{field_name}' already exists, skipping.")
+    for base_name, sg_field in zip(CASBIN_FIELD_NAMES, CASBIN_FIELDS, strict=True):
+        if sg_field in existing_field_names:
+            skipped.append(base_name)
+            click.echo(f"  Field '{base_name}' already exists, skipping.")
         else:
-            sg.schema_field_create(entity_type, data_type, display_name, properties={"name": field_name})
-            created.append(field_name)
-            click.echo(f"  Created field '{field_name}' ({data_type}).")
+            sg.schema_field_create(entity_type, "text", display_names[base_name], properties={"name": base_name})
+            created.append(base_name)
+            click.echo(f"  Created field '{base_name}' (text).")
 
     click.echo(f"\nCreated {len(created)} field(s), skipped {len(skipped)} existing field(s).")
 

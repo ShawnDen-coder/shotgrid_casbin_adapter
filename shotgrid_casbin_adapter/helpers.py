@@ -68,8 +68,8 @@ def _rule_to_dict(ptype: str, rule: list[str], project_id: int | None = None) ->
     """Convert a Casbin policy rule to a ShotGrid entity data dict.
 
     Maps the policy type and rule values to the corresponding ShotGrid
-    fields (``ptype``, ``v0``-``v5``). Rule values that exceed the 6-value
-    limit are silently truncated.
+    fields (``sg_ptype``, ``sg_v0``-``sg_v5``). Rule values that exceed
+    the 6-value limit are silently truncated.
 
     Args:
         ptype: The Casbin policy type (e.g. ``"p"`` or ``"g"``).
@@ -78,27 +78,28 @@ def _rule_to_dict(ptype: str, rule: list[str], project_id: int | None = None) ->
 
     Returns:
         A dict mapping ShotGrid field names to their values, e.g.
-        ``{"ptype": "p", "v0": "alice", "v1": "data1", "v2": "read"}``.
+        ``{"sg_ptype": "p", "sg_v0": "alice", "sg_v1": "data1", "sg_v2": "read"}``.
         Includes ``"project"`` key when ``project_id`` is provided.
     """
-    return {"ptype": ptype} | {f"v{i}": v for i, v in enumerate(rule)} | _project_data(project_id)
+    return {CASBIN_FIELDS[0]: ptype} | {CASBIN_FIELDS[i + 1]: v for i, v in enumerate(rule)} | _project_data(project_id)
 
 
 def _entity_to_str(entity: Any) -> str:
     """Convert a ShotGrid entity dict to a Casbin policy line string.
 
-    Builds a comma-separated string from the entity's ``ptype`` and
-    non-None ``v0``-``v5`` values. Trailing ``None`` values are omitted.
+    Builds a comma-separated string from the entity's ``sg_ptype`` and
+    non-None ``sg_v0``-``sg_v5`` values. Trailing ``None`` values are
+    omitted.
 
     Args:
         entity: A ShotGrid entity (``BaseEntity`` or dict) with keys
-            ``"ptype"``, ``"v0"``, ..., ``"v5"``. ``None`` values indicate
-            unused slots.
+            ``"sg_ptype"``, ``"sg_v0"``, ..., ``"sg_v5"``. ``None``
+            values indicate unused slots.
 
     Returns:
         A Casbin policy line string, e.g. ``"p, alice, data1, read"``.
     """
-    arr: list[str] = [entity.get("ptype", "")]
+    arr: list[str] = [entity.get(CASBIN_FIELDS[0], "")]
     for field in CASBIN_FIELDS[1:]:
         v = entity.get(field)
         if v is None:
@@ -110,7 +111,7 @@ def _entity_to_str(entity: Any) -> str:
 def _build_rule_filters(ptype: str, rule: list[str], project_id: int | None = None) -> list[list[Any]]:
     """Build ShotGrid filters to locate a specific policy rule.
 
-    Creates filter expressions that match on ``ptype`` and all provided
+    Creates filter expressions that match on ``sg_ptype`` and all provided
     rule values using ShotGrid's ``"is"`` operator. When ``project_id``
     is provided, a project scope filter is prepended.
 
@@ -121,9 +122,11 @@ def _build_rule_filters(ptype: str, rule: list[str], project_id: int | None = No
 
     Returns:
         A list of ShotGrid filter expressions, e.g.
-        ``[["project", "is", {...}], ["ptype", "is", "p"], ["v0", "is", "alice"]]``.
+        ``[["project", "is", {...}], ["sg_ptype", "is", "p"], ["sg_v0", "is", "alice"]]``.
     """
-    return _project_filter(project_id) + [["ptype", "is", ptype]] + [[f"v{i}", "is", v] for i, v in enumerate(rule)]
+    return [*_project_filter(project_id), [CASBIN_FIELDS[0], "is", ptype]] + [
+        [CASBIN_FIELDS[i + 1], "is", v] for i, v in enumerate(rule)
+    ]
 
 
 def _batch_delete(sg: Shotgun, entity_type: str, entities: list[Any]) -> None:

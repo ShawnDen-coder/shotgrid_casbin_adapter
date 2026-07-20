@@ -265,10 +265,10 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
         if not (0 <= field_index <= 5) or not (1 <= field_index + len(field_values) <= 6):
             return False
 
-        sg_filters: list[list[Any]] = [*_project_filter(self._project_id), ["ptype", "is", ptype]]
+        sg_filters: list[list[Any]] = [*_project_filter(self._project_id), [CASBIN_FIELDS[0], "is", ptype]]
         for i, v in enumerate(field_values):
             if v != "":
-                sg_filters.append([f"v{field_index + i}", "is", v])
+                sg_filters.append([CASBIN_FIELDS[field_index + i + 1], "is", v])
 
         entities = self._sg.find(self._entity_type, sg_filters, ["id"])
         if not entities:
@@ -297,7 +297,7 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
 
         data = _rule_to_dict(ptype, new_policy)
         for i in range(len(new_policy), max(len(old_rule), len(new_policy))):
-            data[f"v{i}"] = None
+            data[CASBIN_FIELDS[i + 1]] = None
         self._sg.update(self._entity_type, entities[0]["id"], data)  # type: ignore[typeddict-item]
 
     def update_policies(self, sec: str, ptype: str, old_rules: list[list[str]], new_rules: list[list[str]]) -> None:

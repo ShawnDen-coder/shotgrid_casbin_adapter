@@ -50,13 +50,13 @@ class TestInitCommand:
     def test_skips_existing_fields(self, mock_sg, runner, mocker):
         mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
         mock_sg.schema_field_read.return_value = {
-            "ptype": {},
-            "v0": {},
-            "v1": {},
-            "v2": {},
-            "v3": {},
-            "v4": {},
-            "v5": {},
+            "sg_ptype": {},
+            "sg_v0": {},
+            "sg_v1": {},
+            "sg_v2": {},
+            "sg_v3": {},
+            "sg_v4": {},
+            "sg_v5": {},
         }
         mock_sg.find_one.return_value = None  # No existing admin policy
 
@@ -159,10 +159,10 @@ class TestInitCommand:
 
         assert result.exit_code == 0
         create_call_data = mock_sg.create.call_args[0][1]
-        assert create_call_data["ptype"] == "p"
-        assert create_call_data["v0"] == "admin"
-        assert create_call_data["v1"] == "*"
-        assert create_call_data["v2"] == "*"
+        assert create_call_data["sg_ptype"] == "p"
+        assert create_call_data["sg_v0"] == "admin"
+        assert create_call_data["sg_v1"] == "*"
+        assert create_call_data["sg_v2"] == "*"
 
     def test_admin_policy_skipped_if_exists(self, mock_sg, runner, mocker):
         mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
