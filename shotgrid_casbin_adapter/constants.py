@@ -16,7 +16,8 @@ Attributes:
     SHOTGRID_SCRIPT_NAME: Environment variable key for ShotGrid script name.
     SHOTGRID_API_KEY: Environment variable key for ShotGrid API key.
     SHOTGRID_ENTITY_TYPE: Environment variable key for custom entity type name.
-    DEFAULT_ENTITY_TYPE: Default ShotGrid entity type for Casbin rules.
+    SHOTGRID_PROJECT_ID: Environment variable key for ShotGrid project ID.
+    DEFAULT_ENTITY_TYPE: Default ShotGrid entity type for Casbin rules (``CustomEntity01``).
     CASBIN_FIELDS: Field names that map to Casbin policy rule components.
 """
 
@@ -27,7 +28,8 @@ SHOTGRID_URL: Final[str] = "SHOTGRID_URL"
 SHOTGRID_SCRIPT_NAME: Final[str] = "SHOTGRID_SCRIPT_NAME"
 SHOTGRID_API_KEY: Final[str] = "SHOTGRID_API_KEY"
 SHOTGRID_ENTITY_TYPE: Final[str] = "SHOTGRID_ENTITY_TYPE"
+SHOTGRID_PROJECT_ID: Final[str] = "SHOTGRID_PROJECT_ID"
 
-DEFAULT_ENTITY_TYPE: Final[str] = "CasbinRule"
+DEFAULT_ENTITY_TYPE: Final[str] = "CustomEntity01"
 
 CASBIN_FIELDS: Final[list[str]] = ["ptype", "v0", "v1", "v2", "v3", "v4", "v5"]

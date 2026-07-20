@@ -6,8 +6,10 @@ import os
 
 import pytest
 from click.testing import CliRunner
+from shotgun_api3.shotgun import Fault
 
 from shotgrid_casbin_adapter.cli import cli
+from shotgrid_casbin_adapter.constants import DEFAULT_ENTITY_TYPE
 from shotgrid_casbin_adapter.constants import SHOTGRID_API_KEY
 from shotgrid_casbin_adapter.constants import SHOTGRID_SCRIPT_NAME
 from shotgrid_casbin_adapter.constants import SHOTGRID_URL
@@ -84,6 +86,41 @@ class TestInitCommand:
 
         assert result.exit_code == 0
         assert "CustomEntity01" in result.output
+
+    def test_invalid_entity_type(self, mock_sg, runner, mocker):
+        mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
+        mock_sg.schema_field_read.side_effect = Fault("invalid entity type")
+
+        result = runner.invoke(
+            cli,
+            [
+                "init",
+                "--base-url",
+                "https://t.sg.com",
+                "--script-name",
+                "s",
+                "--api-key",
+                "k",
+                "--entity-type",
+                "BogusType",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "BogusType" in result.output
+        assert "Site Preferences" in result.output
+
+    def test_default_entity_type(self, mock_sg, runner, mocker):
+        mocker.patch("shotgrid_casbin_adapter.cli._get_sg", return_value=mock_sg)
+        mock_sg.schema_field_read.return_value = {}
+
+        result = runner.invoke(
+            cli,
+            ["init", "--base-url", "https://t.sg.com", "--script-name", "s", "--api-key", "k"],
+        )
+
+        assert result.exit_code == 0
+        assert DEFAULT_ENTITY_TYPE in result.output
 
     def test_missing_url_fails(self, runner, mocker):
         mocker.patch.dict(os.environ, {}, clear=True)
