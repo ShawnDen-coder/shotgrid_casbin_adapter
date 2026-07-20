@@ -13,6 +13,7 @@ Typical usage example:
         base_url="https://example.shotgridstudio.com",
         script_name="my_script",
         api_key="abc123",
+        project_id=42,
     )
     e = casbin.Enforcer("model.conf", adapter)
 
@@ -30,6 +31,7 @@ from shotgun_api3.shotgun import Shotgun
 from shotgrid_casbin_adapter.constants import CASBIN_FIELDS
 from shotgrid_casbin_adapter.constants import DEFAULT_ENTITY_TYPE
 from shotgrid_casbin_adapter.constants import SHOTGRID_ENTITY_TYPE
+from shotgrid_casbin_adapter.constants import SHOTGRID_PROJECT_ID
 from shotgrid_casbin_adapter.filter import Filter
 from shotgrid_casbin_adapter.filter import _build_sg_filters
 from shotgrid_casbin_adapter.helpers import _FIELDS_WITH_ID
@@ -38,6 +40,7 @@ from shotgrid_casbin_adapter.helpers import _build_create_request
 from shotgrid_casbin_adapter.helpers import _build_rule_filters
 from shotgrid_casbin_adapter.helpers import _connect_sg
 from shotgrid_casbin_adapter.helpers import _entity_to_str
+from shotgrid_casbin_adapter.helpers import _project_filter
 from shotgrid_casbin_adapter.helpers import _rule_to_dict
 
 
@@ -47,6 +50,11 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
     This adapter maps Casbin policy rules to ShotGrid custom entity records.
     Each record contains ``ptype`` and ``v0``-``v5`` fields representing one
     policy line.
+
+    When ``project_id`` is provided, all operations are scoped to that project:
+    queries include a project filter, and created entities are linked to the
+    project. This enables per-project policy isolation within a single ShotGrid
+    site. When ``project_id`` is ``None``, the adapter operates at site level.
 
     ShotGrid's ``delete()`` operation retires entities rather than destroying
     them, and ``find()`` excludes retired records by default. This provides
@@ -60,6 +68,9 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
         api_key: ShotGrid API key. Falls back to ``SHOTGRID_API_KEY`` env var.
         entity_type: ShotGrid entity type for storing rules.
             Falls back to ``SHOTGRID_ENTITY_TYPE`` env var, then ``DEFAULT_ENTITY_TYPE``.
+        project_id: ShotGrid project ID for scoping operations.
+            Falls back to ``SHOTGRID_PROJECT_ID`` env var. When ``None``,
+            operations are site-wide.
         filtered: Whether this adapter supports filtered policy loading.
 
     Raises:
@@ -73,6 +84,7 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
         script_name: str | None = None,
         api_key: str | None = None,
         entity_type: str | None = None,
+        project_id: int | None = None,
         filtered: bool = False,
     ) -> None:
         """Initialize the ShotGrid Casbin adapter.
@@ -85,9 +97,15 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
             api_key: ShotGrid API key. Falls back to ``SHOTGRID_API_KEY`` env var.
             entity_type: ShotGrid entity type for storing rules.
                 Falls back to ``SHOTGRID_ENTITY_TYPE`` env var, then ``DEFAULT_ENTITY_TYPE``.
+            project_id: ShotGrid project ID for scoping operations.
+                Falls back to ``SHOTGRID_PROJECT_ID`` env var. When ``None``,
+                operations are site-wide.
             filtered: Whether this adapter supports filtered policy loading.
         """
         self._entity_type: str = entity_type or os.environ.get(SHOTGRID_ENTITY_TYPE) or DEFAULT_ENTITY_TYPE
+        self._project_id: int | None = (
+            project_id if project_id is not None else (int(v) if (v := os.environ.get(SHOTGRID_PROJECT_ID)) else None)
+        )
         self._filtered: bool = filtered
         self._sg: Shotgun = sg or _connect_sg(base_url=base_url, script_name=script_name, api_key=api_key)
 
@@ -101,18 +119,24 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
         """The ShotGrid entity type used for storing Casbin rules."""
         return self._entity_type
 
+    @property
+    def project_id(self) -> int | None:
+        """The ShotGrid project ID for scoping operations, or ``None`` for site-wide."""
+        return self._project_id
+
     # --- Adapter interface ---
 
     def load_policy(self, model: Model) -> None:
         """Load all policy rules from ShotGrid into the Casbin model.
 
-        Queries all non-retired entities of the configured type and feeds
-        each one into :func:`casbin.persist.load_policy_line`.
+        Queries all non-retired entities of the configured type (optionally
+        scoped to the configured project) and feeds each one into
+        :func:`casbin.persist.load_policy_line`.
 
         Args:
             model: The Casbin model to populate with policy rules.
         """
-        for entity in self._sg.find(self._entity_type, [], _FIELDS_WITH_ID):
+        for entity in self._sg.find(self._entity_type, _project_filter(self._project_id), _FIELDS_WITH_ID):
             persist.load_policy_line(_entity_to_str(entity), model)
 
     def is_filtered(self) -> bool:
@@ -133,7 +157,7 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
             model: The Casbin model to populate with matching policy rules.
             filter: A :class:`Filter` instance specifying field value constraints.
         """
-        sg_filters = _build_sg_filters(filter)
+        sg_filters = _project_filter(self._project_id) + _build_sg_filters(filter)
         for entity in self._sg.find(self._entity_type, sg_filters, _FIELDS_WITH_ID):
             persist.load_policy_line(_entity_to_str(entity), model)
         self._filtered = True
@@ -142,8 +166,9 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
         """Save all policy rules from the Casbin model to ShotGrid.
 
         Replaces all existing rules with the current model state. First
-        deletes all existing entities, then creates new ones for every
-        rule in the model's ``"p"`` and ``"g"`` sections.
+        deletes all existing entities (optionally scoped to the configured
+        project), then creates new ones for every rule in the model's
+        ``"p"`` and ``"g"`` sections.
 
         Args:
             model: The Casbin model whose rules to persist.
@@ -151,7 +176,7 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
         Returns:
             ``True`` on success.
         """
-        existing = self._sg.find(self._entity_type, [], ["id"])
+        existing = self._sg.find(self._entity_type, _project_filter(self._project_id), ["id"])
         _batch_delete(self._sg, self._entity_type, existing)
 
         create_requests: list[dict[str, Any]] = []
@@ -160,7 +185,7 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
                 continue
             for ptype, ast in model.model[sec].items():
                 for rule in ast.policy:
-                    create_requests.append(_build_create_request(self._entity_type, ptype, rule))
+                    create_requests.append(_build_create_request(self._entity_type, ptype, rule, self._project_id))
         if create_requests:
             self._sg.batch(create_requests)
         return True
@@ -173,7 +198,7 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
             ptype: The policy type identifier.
             rule: The policy rule values.
         """
-        self._sg.create(self._entity_type, _rule_to_dict(ptype, rule))
+        self._sg.create(self._entity_type, _rule_to_dict(ptype, rule, self._project_id))
 
     def add_policies(self, sec: str, ptype: str, rules: list[list[str]]) -> None:
         """Add multiple policy rules to ShotGrid via batch operation.
@@ -185,12 +210,12 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
         """
         if not rules:
             return
-        self._sg.batch([_build_create_request(self._entity_type, ptype, r) for r in rules])
+        self._sg.batch([_build_create_request(self._entity_type, ptype, r, self._project_id) for r in rules])
 
     def remove_policy(self, sec: str, ptype: str, rule: list[str]) -> bool:
         """Remove a policy rule from ShotGrid.
 
-        ShotGrid's delete retires the entity (soft-delete). ``find()``
+        ShotGrid's delete retires the entity (soft-delete). ``find()
         excludes retired records by default.
 
         Args:
@@ -201,7 +226,7 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
         Returns:
             ``True`` if at least one matching rule was removed, ``False`` otherwise.
         """
-        entities = self._sg.find(self._entity_type, _build_rule_filters(ptype, rule), ["id"])
+        entities = self._sg.find(self._entity_type, _build_rule_filters(ptype, rule, self._project_id), ["id"])
         if not entities:
             return False
         for entity in entities:
@@ -220,7 +245,7 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
             return
         all_ids: set[int] = set()
         for rule in rules:
-            for e in self._sg.find(self._entity_type, _build_rule_filters(ptype, rule), ["id"]):
+            for e in self._sg.find(self._entity_type, _build_rule_filters(ptype, rule, self._project_id), ["id"]):
                 all_ids.add(e["id"])  # type: ignore[typeddict-item]
         if all_ids:
             _batch_delete(self._sg, self._entity_type, [{"id": eid} for eid in all_ids])
@@ -240,7 +265,7 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
         if not (0 <= field_index <= 5) or not (1 <= field_index + len(field_values) <= 6):
             return False
 
-        sg_filters: list[list[str]] = [["ptype", "is", ptype]]
+        sg_filters: list[list[Any]] = [*_project_filter(self._project_id), ["ptype", "is", ptype]]
         for i, v in enumerate(field_values):
             if v != "":
                 sg_filters.append([f"v{field_index + i}", "is", v])
@@ -266,7 +291,7 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
             old_rule: The current policy rule values.
             new_policy: The replacement policy rule values.
         """
-        entities = self._sg.find(self._entity_type, _build_rule_filters(ptype, old_rule), ["id"])
+        entities = self._sg.find(self._entity_type, _build_rule_filters(ptype, old_rule, self._project_id), ["id"])
         if not entities:
             return
 
@@ -335,7 +360,8 @@ class Adapter(persist.Adapter, persist.adapters.UpdateAdapter):  # type: ignore[
         Returns:
             A list of the old rule value lists that were replaced.
         """
-        old_entities = self._sg.find(self._entity_type, _build_sg_filters(filter_obj), _FIELDS_WITH_ID)
+        sg_filters = _project_filter(self._project_id) + _build_sg_filters(filter_obj)
+        old_entities = self._sg.find(self._entity_type, sg_filters, _FIELDS_WITH_ID)
 
         old_rules: list[list[str]] = []
         for entity in old_entities:

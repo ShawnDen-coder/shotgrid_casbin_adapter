@@ -26,6 +26,14 @@ adapter = Adapter(
     api_key="your_api_key",
 )
 
+# Scope to a specific project (one adapter = one project's policies)
+adapter = Adapter(
+    base_url="https://your-studio.shotgridstudio.com",
+    script_name="casbin_script",
+    api_key="your_api_key",
+    project_id=42,
+)
+
 e = casbin.Enforcer("model.conf", adapter)
 
 sub = "alice"
@@ -105,24 +113,33 @@ m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
 
 ## CLI Usage
 
-Initialize the ShotGrid custom entity type and fields for storing Casbin rules:
+Create Casbin fields on a ShotGrid custom entity type:
+
+> **Prerequisite:** The custom entity type must already be enabled in ShotGrid
+> (Site Preferences > Entities). The `init` command only creates fields on an
+> existing entity type — it cannot create the entity type itself.
 
 ```bash
-# Using environment variables
+# Using just (loads .env automatically)
+just sgca-init CustomEntity39
+
+# Or using environment variables directly
 export SHOTGRID_URL="https://your-studio.shotgridstudio.com"
 export SHOTGRID_SCRIPT_NAME="casbin_script"
 export SHOTGRID_API_KEY="your_api_key"
-shotgrid-casbin-adapter init
+sgca init
 
 # Or pass parameters via CLI options
-shotgrid-casbin-adapter init \
+sgca init \
     --base-url "https://your-studio.shotgridstudio.com" \
     --script-name "casbin_script" \
     --api-key "your_api_key"
 
-# Specify a custom entity type
-shotgrid-casbin-adapter init --entity-type "CustomEntity01"
+# Specify a custom entity type (must already exist in ShotGrid)
+sgca init --entity-type "CustomEntity01"
 ```
+
+If the entity type does not exist, the command will report an error and remind you to enable it in Site Preferences first.
 
 The `init` command creates the following fields on the entity type:
 
@@ -143,13 +160,14 @@ The `init` command creates the following fields on the entity type:
 | `SHOTGRID_URL`          | ShotGrid server URL                            | Yes*     |
 | `SHOTGRID_SCRIPT_NAME`  | Script name for authentication                 | Yes*     |
 | `SHOTGRID_API_KEY`      | API key for authentication                     | Yes*     |
-| `SHOTGRID_ENTITY_TYPE`  | Custom entity type name (default: `CasbinRule`)| No       |
+| `SHOTGRID_ENTITY_TYPE`  | Custom entity type name (default: `CustomEntity01`)| No       |
+| `SHOTGRID_PROJECT_ID`   | ShotGrid project ID for scoping operations     | No       |
 
 \* Required when not passing connection parameters directly to the `Adapter` constructor.
 
 ## Adapter API
 
-### `Adapter(sg=None, base_url=None, script_name=None, api_key=None, entity_type=None, filtered=False)`
+### `Adapter(sg=None, base_url=None, script_name=None, api_key=None, entity_type=None, project_id=None, filtered=False)`
 
 | Parameter      | Type                    | Description                                                    |
 |----------------|-------------------------|----------------------------------------------------------------|
@@ -158,6 +176,7 @@ The `init` command creates the following fields on the entity type:
 | `script_name`  | `str`                   | Script name. Falls back to `SHOTGRID_SCRIPT_NAME` env var.     |
 | `api_key`      | `str`                   | API key. Falls back to `SHOTGRID_API_KEY` env var.             |
 | `entity_type`  | `str`                   | Entity type name. Falls back to `SHOTGRID_ENTITY_TYPE` env var.|
+| `project_id`   | `int`                   | ShotGrid project ID. Falls back to `SHOTGRID_PROJECT_ID` env var. `None` = site-wide. |
 | `filtered`     | `bool`                  | Enable filtered policy loading. Default: `False`.              |
 
 ### Supported Methods
@@ -176,6 +195,25 @@ The `init` command creates the following fields on the entity type:
 | `update_policies(sec, ptype, old_rules, new_rules)` | Update multiple rules          |
 | `update_filtered_policies(sec, ptype, new_rules, field_index, *field_values)` | Update by filter |
 | `is_filtered()`              | Check if adapter is in filtered mode               |
+
+### Project Scoping
+
+ShotGrid sites contain multiple projects. By default, the adapter operates at site level — all policy rules across projects are mixed together. To isolate policies per project, bind a `project_id` at the Adapter level:
+
+```python
+# One adapter per project — policies are automatically scoped
+project_a_adapter = Adapter(sg=sg, project_id=1)
+project_b_adapter = Adapter(sg=sg, project_id=2)
+
+# Each enforcer only sees/modify its project's policies
+enforcer_a = casbin.Enforcer("model.conf", project_a_adapter)
+enforcer_b = casbin.Enforcer("model.conf", project_b_adapter)
+```
+
+When `project_id` is set:
+- All `find()` queries include a `["project", "is", {"type": "Project", "id": project_id}]` filter
+- All `create()` operations link the entity to the project
+- When `project_id` is `None` (default), behavior is site-wide (backward compatible)
 
 ### Soft Delete
 

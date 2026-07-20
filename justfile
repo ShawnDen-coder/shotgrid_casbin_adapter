@@ -36,6 +36,10 @@ lint-pre-commit:
 lint-watch:
     uvx ruff check --watch .
 
+# Initialize ShotGrid entity fields for Casbin (requires .env with SHOTGRID_URL, SHOTGRID_SCRIPT_NAME, SHOTGRID_API_KEY)
+sgca-init entity-type="CustomEntity01":
+    uv run sgca init --entity-type {{entity-type}}
+
 # Run tests with the dev Python version
 test:
     @just test-version {{python_dev_version}}

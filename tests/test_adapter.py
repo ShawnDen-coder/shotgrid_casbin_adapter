@@ -9,12 +9,16 @@ import pytest
 from shotgrid_casbin_adapter.constants import CASBIN_FIELDS
 from shotgrid_casbin_adapter.constants import DEFAULT_ENTITY_TYPE
 from shotgrid_casbin_adapter.constants import SHOTGRID_API_KEY
+from shotgrid_casbin_adapter.constants import SHOTGRID_PROJECT_ID
 from shotgrid_casbin_adapter.constants import SHOTGRID_SCRIPT_NAME
 from shotgrid_casbin_adapter.constants import SHOTGRID_URL
 from shotgrid_casbin_adapter.core import Adapter
 from shotgrid_casbin_adapter.filter import Filter
 from shotgrid_casbin_adapter.filter import _build_sg_filters
+from shotgrid_casbin_adapter.helpers import _build_rule_filters
 from shotgrid_casbin_adapter.helpers import _entity_to_str
+from shotgrid_casbin_adapter.helpers import _project_data
+from shotgrid_casbin_adapter.helpers import _project_filter
 from shotgrid_casbin_adapter.helpers import _rule_to_dict
 
 
@@ -37,6 +41,20 @@ class TestRuleToDict:
 
     def test_empty_rule(self):
         assert _rule_to_dict("p", []) == {"ptype": "p"}
+
+    def test_with_project_id(self):
+        result = _rule_to_dict("p", ["alice", "data1", "read"], project_id=42)
+        assert result == {
+            "ptype": "p",
+            "v0": "alice",
+            "v1": "data1",
+            "v2": "read",
+            "project": {"type": "Project", "id": 42},
+        }
+
+    def test_without_project_id(self):
+        result = _rule_to_dict("p", ["alice"], project_id=None)
+        assert "project" not in result
 
 
 class TestEntityToStr:
@@ -72,6 +90,41 @@ class TestBuildSgFilters:
         assert _build_sg_filters(f) == [["ptype", "in", ["p"]], ["v0", "in", ["alice", "bob"]]]
 
 
+class TestProjectFilter:
+    """Tests for _project_filter."""
+
+    def test_with_project_id(self):
+        result = _project_filter(42)
+        assert result == [["project", "is", {"type": "Project", "id": 42}]]
+
+    def test_without_project_id(self):
+        assert _project_filter(None) == []
+
+
+class TestProjectData:
+    """Tests for _project_data."""
+
+    def test_with_project_id(self):
+        result = _project_data(42)
+        assert result == {"project": {"type": "Project", "id": 42}}
+
+    def test_without_project_id(self):
+        assert _project_data(None) == {}
+
+
+class TestBuildRuleFilters:
+    """Tests for _build_rule_filters."""
+
+    def test_without_project(self):
+        result = _build_rule_filters("p", ["alice", "data1"])
+        assert result == [["ptype", "is", "p"], ["v0", "is", "alice"], ["v1", "is", "data1"]]
+
+    def test_with_project(self):
+        result = _build_rule_filters("p", ["alice"], project_id=42)
+        assert result[0] == ["project", "is", {"type": "Project", "id": 42}]
+        assert result[1] == ["ptype", "is", "p"]
+
+
 # --- Adapter tests ---
 
 
@@ -82,22 +135,35 @@ def mock_sg(mocker):
 
 
 @pytest.fixture
-def adapter(mock_sg):
-    """Fixture providing an Adapter with a mocked ShotGrid connection."""
+def adapter(mock_sg, mocker):
+    """Fixture providing an Adapter with a mocked ShotGrid connection (no project scope)."""
+    mocker.patch.dict(os.environ, {}, clear=True)
     return Adapter(sg=mock_sg)
+
+
+@pytest.fixture
+def project_adapter(mock_sg):
+    """Fixture providing an Adapter scoped to a specific project."""
+    return Adapter(sg=mock_sg, project_id=42)
 
 
 class TestAdapterInit:
     """Tests for Adapter initialization."""
 
-    def test_with_sg_instance(self, mock_sg):
+    def test_with_sg_instance(self, mock_sg, mocker):
+        mocker.patch.dict(os.environ, {}, clear=True)
         adapter = Adapter(sg=mock_sg)
         assert adapter.sg is mock_sg
         assert adapter.entity_type == DEFAULT_ENTITY_TYPE
+        assert adapter.project_id is None
 
     def test_custom_entity_type(self, mock_sg):
         adapter = Adapter(sg=mock_sg, entity_type="CustomEntity01")
         assert adapter.entity_type == "CustomEntity01"
+
+    def test_project_id(self, mock_sg):
+        adapter = Adapter(sg=mock_sg, project_id=42)
+        assert adapter.project_id == 42
 
     def test_connect_via_params(self, mocker):
         mock_sg = mocker.MagicMock()
@@ -126,6 +192,11 @@ class TestAdapterInit:
         adapter = Adapter(sg=mock_sg)
         assert adapter.entity_type == "MyEntity"
 
+    def test_project_id_from_env(self, mock_sg, mocker):
+        mocker.patch.dict(os.environ, {SHOTGRID_PROJECT_ID: "99"}, clear=True)
+        adapter = Adapter(sg=mock_sg)
+        assert adapter.project_id == 99
+
 
 class TestAdapterLoadPolicy:
     """Tests for Adapter.load_policy."""
@@ -140,6 +211,18 @@ class TestAdapterLoadPolicy:
         adapter.load_policy(mocker.MagicMock())
 
         mock_sg.find.assert_called_once_with(DEFAULT_ENTITY_TYPE, [], ["id", *CASBIN_FIELDS])
+
+    def test_load_policy_with_project(self, project_adapter, mock_sg, mocker):
+        mock_sg.find.return_value = []
+        mocker.patch("shotgrid_casbin_adapter.core.persist.load_policy_line")
+
+        project_adapter.load_policy(mocker.MagicMock())
+
+        mock_sg.find.assert_called_once_with(
+            DEFAULT_ENTITY_TYPE,
+            [["project", "is", {"type": "Project", "id": 42}]],
+            ["id", *CASBIN_FIELDS],
+        )
 
 
 class TestAdapterSavePolicy:
@@ -156,6 +239,22 @@ class TestAdapterSavePolicy:
         assert result is True
         assert mock_sg.batch.call_count == 2  # delete + create
 
+    def test_save_policy_with_project(self, project_adapter, mock_sg):
+        mock_sg.find.return_value = [{"id": 1}]
+
+        mock_ast = type("Ast", (), {"policy": [["alice", "data1", "read"]]})()
+        mock_model = type("Model", (), {"model": {"p": {"p": mock_ast}}})()
+
+        result = project_adapter.save_policy(mock_model)
+
+        assert result is True
+        # Verify find was called with project filter
+        find_filters = mock_sg.find.call_args[0][1]
+        assert find_filters == [["project", "is", {"type": "Project", "id": 42}]]
+        # Verify create request includes project data
+        create_batch = mock_sg.batch.call_args_list[1][0][0]
+        assert create_batch[0]["data"]["project"] == {"type": "Project", "id": 42}
+
 
 class TestAdapterAddPolicy:
     """Tests for Adapter.add_policy and add_policies."""
@@ -164,6 +263,13 @@ class TestAdapterAddPolicy:
         adapter.add_policy("p", "p", ["alice", "data1", "read"])
         mock_sg.create.assert_called_once_with(
             DEFAULT_ENTITY_TYPE, {"ptype": "p", "v0": "alice", "v1": "data1", "v2": "read"}
+        )
+
+    def test_add_policy_with_project(self, project_adapter, mock_sg):
+        project_adapter.add_policy("p", "p", ["alice", "data1", "read"])
+        mock_sg.create.assert_called_once_with(
+            DEFAULT_ENTITY_TYPE,
+            {"ptype": "p", "v0": "alice", "v1": "data1", "v2": "read", "project": {"type": "Project", "id": 42}},
         )
 
     def test_add_policies(self, adapter, mock_sg):
@@ -188,6 +294,13 @@ class TestAdapterRemovePolicy:
     def test_remove_policy_not_found(self, adapter, mock_sg):
         mock_sg.find.return_value = []
         assert adapter.remove_policy("p", "p", ["alice", "data1", "read"]) is False
+
+    def test_remove_policy_with_project(self, project_adapter, mock_sg):
+        mock_sg.find.return_value = [{"id": 1}]
+        assert project_adapter.remove_policy("p", "p", ["alice", "data1", "read"]) is True
+        # Verify find was called with project filter
+        find_filters = mock_sg.find.call_args[0][1]
+        assert find_filters[0] == ["project", "is", {"type": "Project", "id": 42}]
 
     def test_remove_policies(self, adapter, mock_sg):
         mock_sg.find.side_effect = [[{"id": 1}], [{"id": 2}]]
@@ -214,6 +327,12 @@ class TestAdapterRemoveFilteredPolicy:
 
     def test_invalid_index_returns_false(self, adapter, mock_sg):
         assert adapter.remove_filtered_policy("p", "p", 6, "alice") is False
+
+    def test_with_project(self, project_adapter, mock_sg):
+        mock_sg.find.return_value = [{"id": 1}]
+        assert project_adapter.remove_filtered_policy("p", "p", 0, "alice") is True
+        find_filters = mock_sg.find.call_args[0][1]
+        assert find_filters[0] == ["project", "is", {"type": "Project", "id": 42}]
 
 
 class TestAdapterUpdatePolicy:
@@ -267,3 +386,15 @@ class TestAdapterFilteredPolicy:
 
         assert adapter.is_filtered() is True
         assert mock_sg.find.call_args[0][1] == [["ptype", "in", ["p"]]]
+
+    def test_load_filtered_policy_with_project(self, project_adapter, mock_sg, mocker):
+        mock_sg.find.return_value = []
+        mocker.patch("shotgrid_casbin_adapter.core.persist.load_policy_line")
+
+        f = Filter()
+        f.ptype = ["p"]
+        project_adapter.load_filtered_policy(mocker.MagicMock(), f)
+
+        find_filters = mock_sg.find.call_args[0][1]
+        assert find_filters[0] == ["project", "is", {"type": "Project", "id": 42}]
+        assert find_filters[1] == ["ptype", "in", ["p"]]

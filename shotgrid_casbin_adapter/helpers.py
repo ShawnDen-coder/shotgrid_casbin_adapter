@@ -14,6 +14,8 @@ Functions:
     _batch_delete: Batch-delete ShotGrid entities.
     _build_create_request: Build a batch create request for a single rule.
     _connect_sg: Create a ShotGrid connection from parameters or env vars.
+    _project_filter: Build ShotGrid project scope filter.
+    _project_data: Build ShotGrid project scope entity data.
 """
 
 import os
@@ -30,7 +32,39 @@ from shotgrid_casbin_adapter.constants import SHOTGRID_URL
 _FIELDS_WITH_ID: list[str] = ["id", *CASBIN_FIELDS]
 
 
-def _rule_to_dict(ptype: str, rule: list[str]) -> dict[str, str | None]:
+def _project_filter(project_id: int | None) -> list[list[Any]]:
+    """Build ShotGrid filter for project scoping.
+
+    Args:
+        project_id: ShotGrid project ID. When ``None``, returns an empty
+            list (no project filter applied).
+
+    Returns:
+        A list containing a single project filter expression, or an empty
+        list if ``project_id`` is ``None``.
+    """
+    if project_id is None:
+        return []
+    return [["project", "is", {"type": "Project", "id": project_id}]]
+
+
+def _project_data(project_id: int | None) -> dict[str, Any]:
+    """Build ShotGrid entity data for project association.
+
+    Args:
+        project_id: ShotGrid project ID. When ``None``, returns an empty
+            dict (no project association).
+
+    Returns:
+        A dict with a ``"project"`` key for entity creation, or an empty
+        dict if ``project_id`` is ``None``.
+    """
+    if project_id is None:
+        return {}
+    return {"project": {"type": "Project", "id": project_id}}
+
+
+def _rule_to_dict(ptype: str, rule: list[str], project_id: int | None = None) -> dict[str, Any]:
     """Convert a Casbin policy rule to a ShotGrid entity data dict.
 
     Maps the policy type and rule values to the corresponding ShotGrid
@@ -40,12 +74,14 @@ def _rule_to_dict(ptype: str, rule: list[str]) -> dict[str, str | None]:
     Args:
         ptype: The Casbin policy type (e.g. ``"p"`` or ``"g"``).
         rule: The policy rule values (e.g. ``["alice", "data1", "read"]``).
+        project_id: Optional ShotGrid project ID to associate the entity with.
 
     Returns:
         A dict mapping ShotGrid field names to their values, e.g.
         ``{"ptype": "p", "v0": "alice", "v1": "data1", "v2": "read"}``.
+        Includes ``"project"`` key when ``project_id`` is provided.
     """
-    return {"ptype": ptype} | {f"v{i}": v for i, v in enumerate(rule)}
+    return {"ptype": ptype} | {f"v{i}": v for i, v in enumerate(rule)} | _project_data(project_id)
 
 
 def _entity_to_str(entity: Any) -> str:
@@ -71,21 +107,23 @@ def _entity_to_str(entity: Any) -> str:
     return ", ".join(arr)
 
 
-def _build_rule_filters(ptype: str, rule: list[str]) -> list[list[str]]:
+def _build_rule_filters(ptype: str, rule: list[str], project_id: int | None = None) -> list[list[Any]]:
     """Build ShotGrid filters to locate a specific policy rule.
 
     Creates filter expressions that match on ``ptype`` and all provided
-    rule values using ShotGrid's ``"is"`` operator.
+    rule values using ShotGrid's ``"is"`` operator. When ``project_id``
+    is provided, a project scope filter is prepended.
 
     Args:
         ptype: The Casbin policy type to match.
         rule: The policy rule values to match.
+        project_id: Optional ShotGrid project ID to scope the query.
 
     Returns:
         A list of ShotGrid filter expressions, e.g.
-        ``[["ptype", "is", "p"], ["v0", "is", "alice"]]``.
+        ``[["project", "is", {...}], ["ptype", "is", "p"], ["v0", "is", "alice"]]``.
     """
-    return [["ptype", "is", ptype]] + [[f"v{i}", "is", v] for i, v in enumerate(rule)]
+    return _project_filter(project_id) + [["ptype", "is", ptype]] + [[f"v{i}", "is", v] for i, v in enumerate(rule)]
 
 
 def _batch_delete(sg: Shotgun, entity_type: str, entities: list[Any]) -> None:
@@ -96,7 +134,7 @@ def _batch_delete(sg: Shotgun, entity_type: str, entities: list[Any]) -> None:
 
     Args:
         sg: A ``shotgun_api3.Shotgun`` connection instance.
-        entity_type: The ShotGrid entity type (e.g. ``"CasbinRule"``).
+        entity_type: The ShotGrid entity type (e.g. ``"CustomEntity01"``).
         entities: List of ShotGrid entities (``BaseEntity`` or dict), each
             containing an ``"id"`` key.
     """
@@ -105,19 +143,25 @@ def _batch_delete(sg: Shotgun, entity_type: str, entities: list[Any]) -> None:
     sg.batch([{"request_type": "delete", "entity_type": entity_type, "entity_id": e["id"]} for e in entities])
 
 
-def _build_create_request(entity_type: str, ptype: str, rule: list[str]) -> dict[str, Any]:
+def _build_create_request(
+    entity_type: str,
+    ptype: str,
+    rule: list[str],
+    project_id: int | None = None,
+) -> dict[str, Any]:
     """Build a ShotGrid batch create request for a single rule.
 
     Args:
-        entity_type: The ShotGrid entity type (e.g. ``"CasbinRule"``).
+        entity_type: The ShotGrid entity type (e.g. ``"CustomEntity01"``).
         ptype: The Casbin policy type.
         rule: The policy rule values.
+        project_id: Optional ShotGrid project ID to associate the entity with.
 
     Returns:
         A ShotGrid batch request dict with ``"request_type"``,
         ``"entity_type"``, and ``"data"`` keys.
     """
-    return {"request_type": "create", "entity_type": entity_type, "data": _rule_to_dict(ptype, rule)}
+    return {"request_type": "create", "entity_type": entity_type, "data": _rule_to_dict(ptype, rule, project_id)}
 
 
 def _connect_sg(

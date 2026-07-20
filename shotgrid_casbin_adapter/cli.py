@@ -1,8 +1,9 @@
 """Command Line Interface (CLI) module for defining application commands.
 
 This module contains all CLI command definitions and entry points using Click.
-The primary command is ``init``, which creates the ShotGrid custom entity type
-and fields required for storing Casbin policy rules.
+The primary command is ``init``, which creates the Casbin fields (ptype, v0-v5)
+on a ShotGrid custom entity type. The entity type itself must already be enabled
+in ShotGrid (via Site Preferences > Entities) before running ``init``.
 
 Typical usage example:
 
@@ -19,6 +20,7 @@ import os
 from typing import Any
 
 import click
+from shotgun_api3.shotgun import Fault
 from shotgun_api3.shotgun import Shotgun
 
 from shotgrid_casbin_adapter.constants import DEFAULT_ENTITY_TYPE
@@ -94,11 +96,11 @@ def cli() -> None:
     help=f"Custom entity type name (env: {SHOTGRID_ENTITY_TYPE}, default: {DEFAULT_ENTITY_TYPE}).",
 )
 def init(base_url: str | None, script_name: str | None, api_key: str | None, entity_type: str | None) -> None:
-    """Initialize ShotGrid entity type and fields for Casbin policy storage.
+    """Create Casbin fields on a ShotGrid custom entity type.
 
     Creates the required fields (ptype, v0-v5) on the specified ShotGrid
-    custom entity type. The entity type must already exist in ShotGrid;
-    this command only creates the fields.
+    custom entity type. The entity type must already be enabled in ShotGrid
+    (Site Preferences > Entities); this command only creates the fields.
 
     Connection parameters can be provided via CLI options or environment
     variables.
@@ -113,10 +115,19 @@ def init(base_url: str | None, script_name: str | None, api_key: str | None, ent
     entity_type = entity_type or os.environ.get(SHOTGRID_ENTITY_TYPE) or DEFAULT_ENTITY_TYPE
     sg = _get_sg(base_url, script_name, api_key)
 
+    # Validate that the entity type exists in ShotGrid
+    try:
+        existing_fields: dict[str, Any] = sg.schema_field_read(entity_type)
+    except Fault as exc:
+        msg = (
+            f"Entity type '{entity_type}' does not exist in ShotGrid.\n"
+            f"Use --entity-type to specify a valid custom entity type (e.g. CustomEntity01).\n"
+            f"Entity types must be enabled in Site Preferences > Entities first."
+        )
+        raise click.UsageError(msg) from exc
+
     click.echo(f"Initializing entity type '{entity_type}' in ShotGrid...")
 
-    # Read existing fields on the entity type
-    existing_fields: dict[str, Any] = sg.schema_field_read(entity_type)
     existing_field_names: set[str] = set(existing_fields.keys())
 
     # Create missing Casbin fields

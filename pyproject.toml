@@ -34,7 +34,7 @@ docs = [
 ]
 
 [project.scripts]
-shotgrid_casbin_adapter = "shotgrid_casbin_adapter.cli:cli"
+sgca = "shotgrid_casbin_adapter.cli:cli"
 
 [build-system]
 requires = ["hatchling"]
