@@ -24,8 +24,7 @@ import click
 from shotgun_api3.shotgun import Fault
 from shotgun_api3.shotgun import Shotgun
 
-from shotgrid_casbin_adapter.constants import CASBIN_FIELD_NAMES
-from shotgrid_casbin_adapter.constants import CASBIN_FIELDS
+from shotgrid_casbin_adapter.constants import CASBIN_CREATE_FIELDS
 from shotgrid_casbin_adapter.constants import DEFAULT_ENTITY_TYPE
 from shotgrid_casbin_adapter.constants import SHOTGRID_API_KEY
 from shotgrid_casbin_adapter.constants import SHOTGRID_ENTITY_TYPE
@@ -154,22 +153,33 @@ def init(
 
     existing_field_names: set[str] = set(existing_fields.keys())
 
-    # Create missing Casbin fields
-    # schema_field_read returns names with sg_ prefix (e.g. sg_ptype)
-    # schema_field_create takes the base name without prefix (e.g. ptype)
+    # Create missing Casbin fields.
+    # schema_field_read returns names with sg_ prefix (e.g. sg_ptype).
+    # schema_field_create takes the base name without prefix (e.g. ptype).
+    # "code" is a built-in field on custom entities — no need to create it.
+    # It is used for v0 (subject) and is renamed to "Subject" for clarity.
     display_names: dict[str, str] = {
         "ptype": "Policy Type",
-        "v0": "V0",
         "v1": "V1",
         "v2": "V2",
         "v3": "V3",
         "v4": "V4",
         "v5": "V5",
     }
+    # Map base name → API field name (with sg_ prefix) for existence check
+    sg_field_map: dict[str, str] = {
+        "ptype": "sg_ptype",
+        "v1": "sg_v1",
+        "v2": "sg_v2",
+        "v3": "sg_v3",
+        "v4": "sg_v4",
+        "v5": "sg_v5",
+    }
 
     created: list[str] = []
     skipped: list[str] = []
-    for base_name, sg_field in zip(CASBIN_FIELD_NAMES, CASBIN_FIELDS, strict=True):
+    for base_name in CASBIN_CREATE_FIELDS:
+        sg_field = sg_field_map[base_name]
         if sg_field in existing_field_names:
             skipped.append(base_name)
             click.echo(f"  Field '{base_name}' already exists, skipping.")
@@ -177,6 +187,19 @@ def init(
             sg.schema_field_create(entity_type, "text", display_names[base_name], properties={"name": base_name})
             created.append(base_name)
             click.echo(f"  Created field '{base_name}' (text).")
+
+    # Rename the built-in "code" field to "Subject" for clarity
+    if "code" in existing_fields:
+        code_props = existing_fields["code"]
+        current_name = code_props.get("name", {}).get("value", "") if isinstance(code_props, dict) else ""
+        if current_name != "Subject":
+            try:
+                sg.schema_field_update(entity_type, "code", {"name": "Subject"})
+                click.echo("  Renamed 'code' field to 'Subject'.")
+            except Exception:
+                click.echo("  Could not rename 'code' field (may lack permission).")
+    else:
+        click.echo("  Built-in 'code' field not found (expected on custom entities).")
 
     click.echo(f"\nCreated {len(created)} field(s), skipped {len(skipped)} existing field(s).")
 
