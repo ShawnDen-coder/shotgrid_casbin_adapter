@@ -42,7 +42,6 @@ Example policies stored in ShotGrid:
 """
 
 import os
-from functools import lru_cache
 
 import casbin
 import httpx
@@ -53,7 +52,6 @@ from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.security import HTTPBasic
 from fastapi.security import HTTPBasicCredentials
 from fastapi.security import HTTPBearer
-from shotgun_api3.shotgun import AuthenticationFault
 from shotgun_api3.shotgun import Shotgun
 
 from shotgrid_casbin_adapter import Adapter
@@ -72,7 +70,7 @@ enforcer = casbin.Enforcer(
 SHOTGRID_URL = os.environ.get("SHOTGRID_URL", "")
 
 
-@lru_cache(maxsize=128)
+
 def _authenticate_sg_rest(login: str, password: str) -> str | None:
     """Authenticate a user via the ShotGrid REST API (OAuth 2.0).
 
@@ -94,8 +92,6 @@ def _authenticate_sg_rest(login: str, password: str) -> str | None:
         The login name if authentication succeeds, otherwise None.
     """
     try:
-
-
         resp = httpx.post(
             f"{SHOTGRID_URL}/api/v1.1/auth/access_token",
             data={"grant_type": "password", "username": login, "password": password},
@@ -108,7 +104,7 @@ def _authenticate_sg_rest(login: str, password: str) -> str | None:
         return None
 
 
-@lru_cache(maxsize=128)
+
 def _authenticate_sg_sdk(login: str, password: str) -> str | None:
     """Authenticate a user via the ShotGrid Python SDK.
 
@@ -126,15 +122,18 @@ def _authenticate_sg_sdk(login: str, password: str) -> str | None:
     Returns:
         The login name if authentication succeeds, otherwise None.
     """
+    from shotgun_api3.shotgun import AuthenticationFault
+
     try:
         sg = Shotgun(SHOTGRID_URL, login=login, password=password)
-        user: dict = sg.find_one("HumanUser", [["login", "is", login]], ["login"])
-        if user:
-            return user.get("login", login)
-        return None
+        # The constructor validates credentials — if we reach here,
+        # authentication succeeded.  Avoid calling sg.find_one() because
+        # ShotGrid instances that require a Personal Access Token (PAT)
+        # for API reads will reject the query even though user-based
+        # login succeeded.
+        sg.close()
+        return login
     except AuthenticationFault:
-        return None
-    except Exception:
         return None
 
 
@@ -199,12 +198,14 @@ def _get_user_bearer(credentials: HTTPAuthorizationCredentials = Depends(HTTPBea
 
 # Choose auth dependency based on environment variable
 _AUTH_MODE = os.environ.get("SGCA_AUTH_MODE", "rest").lower()
+print(_AUTH_MODE)
 _AUTH_BACKENDS = {
     "rest": _get_user_rest,
     "sdk": _get_user_sdk,
     "bearer": _get_user_bearer,
 }
 _current_user = _AUTH_BACKENDS.get(_AUTH_MODE, _get_user_rest)
+print(_current_user)
 
 
 def authorize(sub: str, obj: str, act: str) -> None:
