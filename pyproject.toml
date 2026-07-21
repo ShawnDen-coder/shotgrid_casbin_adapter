@@ -1,6 +1,6 @@
 [project]
 name = "shotgrid_casbin_adapter"
-version = "0.1.0"
+version = "0.2.0"
 description = "A Casbin policy adapter that enables loading and saving access control policies from/to Autodesk ShotGrid (formerly Shotgun)."
 authors = [{name = "shawndeng", email = "shawndeng1109@qq.com"}]
 license = "MIT"

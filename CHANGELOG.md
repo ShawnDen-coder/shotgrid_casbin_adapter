@@ -2,6 +2,20 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [0.2.0](https://github.com/ShawnDen-coder/shotgrid_casbin_adapter/compare/e22b5bfc7c80f237fbd7c0f46e796272513f19e1..0.2.0) - 2026-07-21
+#### Bug Fixes
+- use sg_ prefixed field names for ShotGrid API compatibility - ([41dd0ab](https://github.com/ShawnDen-coder/shotgrid_casbin_adapter/commit/41dd0ab545df5590a160ff4780c7eeaf4ebd76a0)) - ShawnDen-coder
+- idempotent admin policy seeding, add example-fastapi just recipe - ([381e925](https://github.com/ShawnDen-coder/shotgrid_casbin_adapter/commit/381e925dcbeae2e1e23f67e2463bcbf4122a48de)) - ShawnDen-coder
+#### Features
+- add port parameter to example-fastapi just recipe - ([6ac98eb](https://github.com/ShawnDen-coder/shotgrid_casbin_adapter/commit/6ac98ebbf2bc1b00da0bd73ae0740d14f0eddd9c)) - ShawnDen-coder
+- use built-in code field for v0, ensure idempotent init - ([a1d3d8c](https://github.com/ShawnDen-coder/shotgrid_casbin_adapter/commit/a1d3d8ce0cafe5548dd9d70adf34106c84958ce1)) - ShawnDen-coder
+- skip private PyPI CI, add FastAPI RBAC example, seed admin policy - ([e22b5bf](https://github.com/ShawnDen-coder/shotgrid_casbin_adapter/commit/e22b5bfc7c80f237fbd7c0f46e796272513f19e1)) - ShawnDen-coder
+#### Miscellaneous Chores
+- update example - ([20104d5](https://github.com/ShawnDen-coder/shotgrid_casbin_adapter/commit/20104d51844cda4503ddb0157d46f92b51412e65)) - ShawnDen-coder
+- update example - ([71b8a30](https://github.com/ShawnDen-coder/shotgrid_casbin_adapter/commit/71b8a303a6c416d0c32d73b6b90a6a078ea9f9fd)) - ShawnDen-coder
+
+- - -
+
 ## [0.1.0](https://github.com/ShawnDen-coder/shotgrid_casbin_adapter/compare/14dc6186d9d57596b4e156ed70e49ae9b404a683..0.1.0) - 2026-07-20
 #### Features
 - refactor core.py, add project scope, rename CLI to sgca - ([b7ead9b](https://github.com/ShawnDen-coder/shotgrid_casbin_adapter/commit/b7ead9bce9026fbf4f699fadbf3000fe9f4a7eff)) - ShawnDen-coder
